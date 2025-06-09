@@ -1,56 +1,49 @@
-# Code/infer.py
-
 import os
+import json
 import torch
+from tqdm import tqdm
 from torchvision import transforms
-from PIL import Image
-from Code.Resnet import get_resnet101  # 모델 구성을 여기서 가져옴
+from Resnet import get_resnet101
+from VGG import get_vgg19
+from filename_dataset import FilenameDataset
 
-def load_model(num_classes, model_path, device):
-    model = get_resnet101(num_classes=num_classes, pretrained=False)
+BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
+CLASSES_FILE = os.path.join(BASE_DIR, 'classes.json')
+
+def load_model(arch, num_classes, model_path, device):
+    model = get_resnet101(num_classes, pretrained=False) if arch=='resnet101' else get_vgg19(num_classes, pretrained=False)
     model.load_state_dict(torch.load(model_path, map_location=device))
-    model.to(device)
-    model.eval()
-    return model
+    return model.to(device).eval()
 
-def predict_image(model, image_path, device, classes):
-    preprocess = transforms.Compose([
-        transforms.Resize((224, 224)),
+def infer_folder(arch, model_path, classes, data_root,
+                 batch_size=32, device=None, output_path=None):
+    device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # Load model
+    model = load_model(arch, len(classes), model_path, device)
+
+    # Transform & dataset
+    tf = transforms.Compose([
+        transforms.Resize((224,224)),
         transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406],
-                             [0.229, 0.224, 0.225])
+        transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
     ])
+    ds = FilenameDataset(data_root, transform=tf)
+    loader = torch.utils.data.DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=4)
 
-    img = Image.open(image_path).convert("RGB")
-    input_tensor = preprocess(img).unsqueeze(0).to(device)
+    # Infer and save
+    f = open(output_path, 'w', encoding='utf-8') if output_path else None
     with torch.no_grad():
-        outputs = model(input_tensor)
-        _, pred_idx = torch.max(outputs, 1)
-        return classes[pred_idx.item()]
-
-if __name__ == "__main__":
-    # 1) 클래스 목록 (train.py와 동일 순서)
-    classes = [
-        "Impressionism", "Baroque", "Cubism", "Abstract", "Surrealism",
-        "Realism", "Expressionism", "PopArt", "Renaissance", "Others"
-    ]
-
-    # 2) 학습된 모델 가중치 파일 경로
-    model_path = "best_resnet101_artstyle.pth"
-    if not os.path.isfile(model_path):
-        raise FileNotFoundError(f"가중치 파일이 없습니다: {model_path}")
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = load_model(num_classes=len(classes), model_path=model_path, device=device)
-
-    # 3) 예측할 이미지들이 있는 폴더(=“examples/”) 경로
-    examples_dir = "examples"
-    if not os.path.isdir(examples_dir):
-        raise FileNotFoundError(f"‘{examples_dir}’ 폴더가 없습니다. 새 이미지들을 넣어주세요.")
-
-    # 4) 모든 이미지에 대해 예측 수행
-    for fname in sorted(os.listdir(examples_dir)):
-        if fname.lower().endswith((".jpg", ".jpeg", ".png")):
-            img_path = os.path.join(examples_dir, fname)
-            style = predict_image(model, img_path, device, classes)
-            print(f"{fname} → {style}")
+        for inputs in tqdm(loader, desc="Infer", leave=False):
+            # loader yields (inputs, _) tuple
+            if isinstance(inputs, (list, tuple)):
+                inputs = inputs[0]
+            inputs = inputs.to(device)
+            preds = model(inputs).argmax(1).cpu().tolist()
+            for fn, p in zip(ds.files, preds):
+                line = f"{fn}\t{classes[p]}"
+                if f:
+                    f.write(line + "\n")
+                else:
+                    print(line)
+    if f:
+        f.close()

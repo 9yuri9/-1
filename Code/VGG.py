@@ -1,8 +1,9 @@
-from torchvision.models import vgg19
 import torch.nn as nn
+from torchvision.models import vgg19, VGG19_Weights
 
 def get_vgg19(num_classes, pretrained=True):
-    model = vgg19(pretrained=pretrained)
+    weights = VGG19_Weights.DEFAULT if pretrained else None
+    model = vgg19(weights=weights)
     model.classifier = nn.Sequential(
         nn.Linear(25088, 4096),
         nn.ReLU(True),
