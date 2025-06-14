@@ -54,3 +54,6 @@ def evaluate_model(arch, model_path, loader, classes, batch_size, epochs):
     plt.tight_layout()
     plt.savefig(f"{arch}_{batch_size}x{epochs}_confusion_matrix.png")
     plt.close()
+
+        # 이 return 문을 추가합니다!
+    return report_dict
