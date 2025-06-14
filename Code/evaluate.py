@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 from Resnet import get_resnet101, load_dataset
-from vgg    import get_vgg19
+from VGG   import get_vgg19
 
 # 평가 함수 정의
 # - arch: 'resnet101' 또는 'vgg19'
